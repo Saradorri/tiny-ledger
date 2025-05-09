@@ -55,9 +55,9 @@ POST /users/{userId}/transactions
 **Request Body:**
 ```json
 {
-"type": "deposit|withdrawal",
-"amount": 100.0,
-"description": "Transaction description"
+    "type": "deposit|withdrawal",
+    "amount": 100.0,
+    "description": "Transaction description"
 }
 ```
 
@@ -72,7 +72,7 @@ GET /users/{userId}/balance
 **Response:**
 ```json
 {
-"balance": 250.0
+    "balance": 250.0
 }
 ```
 
@@ -92,21 +92,21 @@ GET /users/{userId}/transactions
 ```json
 {
 "transactions": [
-{
-"id": "uuid-string",
-"amount": 100.0,
-"type": "deposit",
-"timestamp": "2023-07-01T12:00:00Z",
-"description": "Initial deposit"
-},
+    {
+        "id": "uuid-string",
+        "amount": 100.0,
+        "type": "deposit",
+        "timestamp": "2023-07-01T12:00:00Z",
+        "description": "Initial deposit"
+    },
 ...
 ],
-"pagination": {
-"page": 1,
-"pageSize": 10,
-"totalItems": 45,
-"totalPages": 5
-}
+    "pagination": {
+        "page": 1,
+        "pageSize": 10,
+        "totalItems": 45,
+        "totalPages": 5
+    }
 }
 ```
 
@@ -136,12 +136,12 @@ The implementation follows clean architecture principles with a clear separation
 
 ```
 cmd/
-server/           # Main application entry point
+    server/           # Main application entry point
 internal/
-handlers/         # HTTP API handlers
-services/         # Business logic
-store/            # In-memory thread-safe data store
-models/           # Data models
+    handlers/         # HTTP API handlers
+    services/         # Business logic
+    store/            # In-memory thread-safe data store
+    models/           # Data models
 ```
 
 ### Efficient Pagination
