@@ -1,6 +1,7 @@
 package store
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -144,5 +145,136 @@ func TestLedgerStore_GetPaginatedTransactions(t *testing.T) {
 	result = store.GetPaginatedTransactions(userId, &startTime, &pastEndTime, 1, 50)
 	if result.TotalCount != 1 {
 		t.Errorf("Expected 1 transaction with narrow time filter, got %d", result.TotalCount)
+	}
+}
+
+func TestConcurrentAccess_NoRace(t *testing.T) {
+	store := NewLedgerStore()
+	userId := "concurrent_test_user"
+	var wg sync.WaitGroup
+	wg.Add(100)
+
+	numReadGoroutines := 50
+	numWriteGoroutines := 50
+	wg = sync.WaitGroup{}
+	wg.Add(numReadGoroutines + numWriteGoroutines)
+
+	// any read errors
+	var readErrors []error
+	var readErrorsMutex sync.Mutex
+
+	// reads
+	for i := 0; i < numReadGoroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, err := store.GetBalance(userId)
+			if err != nil {
+				readErrorsMutex.Lock()
+				readErrors = append(readErrors, err)
+				readErrorsMutex.Unlock()
+			}
+
+			store.GetPaginatedTransactions(userId, nil, nil, 1, 10)
+		}(i)
+	}
+
+	// write
+	for i := 0; i < numWriteGoroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, err := store.AddTransaction(userId, models.Deposit, 10.0, "Concurrent RW test")
+			if err != nil {
+				t.Errorf("Error adding transaction in RW test goroutine %d: %v", i, err)
+			}
+		}(i)
+	}
+
+	wg.Wait() // Wait for all read and write
+
+	if len(readErrors) > 0 {
+		for i, err := range readErrors {
+			t.Errorf("Read error %d: %v", i, err)
+		}
+	}
+
+	// reads, writes, and withdrawals
+	userId = "concurrent_mix_user"
+	initialDeposit := 10000.0 // Start with a large balance for withdrawals
+
+	// Add initial deposit
+	_, err := store.AddTransaction(userId, models.Deposit, initialDeposit, "Initial deposit")
+	if err != nil {
+		t.Fatalf("Error setting up initial deposit: %v", err)
+	}
+
+	numDepositGoroutines := 30
+	numWithdrawalGoroutines := 30
+	numReadGoroutines = 40
+	depositAmount := 5.0
+	withdrawalAmount := 5.0
+
+	wg = sync.WaitGroup{}
+	wg.Add(numDepositGoroutines + numWithdrawalGoroutines + numReadGoroutines)
+
+	var errors []error
+	var errorsMutex sync.Mutex
+
+	// deposit goroutines
+	for i := 0; i < numDepositGoroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, err := store.AddTransaction(userId, models.Deposit, depositAmount, "Concurrent deposit")
+			if err != nil {
+				errorsMutex.Lock()
+				errors = append(errors, err)
+				errorsMutex.Unlock()
+			}
+		}(i)
+	}
+	balance := 0.0
+
+	// withdrawal goroutines
+	for i := 0; i < numWithdrawalGoroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, err := store.AddTransaction(userId, models.Withdrawal, withdrawalAmount, "Concurrent withdrawal")
+			if err != nil {
+				errorsMutex.Lock()
+				errors = append(errors, err)
+				errorsMutex.Unlock()
+			}
+		}(i)
+	}
+
+	// read goroutines
+	for i := 0; i < numReadGoroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, err := store.GetBalance(userId)
+			if err != nil {
+				return
+			}
+		}(i)
+	}
+
+	wg.Wait() // wait for all operations to complete
+
+	if len(errors) > 0 {
+		t.Errorf("Got %d errors during concurrent mixed operations", len(errors))
+		for i, err := range errors[:min(len(errors), 5)] { // Show up to 5 errors
+			t.Errorf("Error %d: %v", i, err)
+		}
+	}
+
+	expectedBalance := initialDeposit +
+		(float64(numDepositGoroutines) * depositAmount) -
+		(float64(numWithdrawalGoroutines) * withdrawalAmount)
+
+	balance, err = store.GetBalance(userId)
+	if err != nil {
+		t.Fatalf("Error getting final mixed balance: %v", err)
+	}
+	if balance != expectedBalance {
+		t.Errorf("Final mixed balance incorrect: got %.2f, want %.2f", balance, expectedBalance)
 	}
 }
